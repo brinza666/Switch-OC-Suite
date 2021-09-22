@@ -20,19 +20,25 @@
 #include "process_management.h"
 #include "clock_manager.h"
 #include "ipc_service.h"
+#include "governor.h"
 
-#define INNER_HEAP_SIZE 0x30000
+#define INNER_HEAP_SIZE 0x38000
 
 extern "C"
 {
     extern std::uint32_t __start__;
 
-    std::uint32_t __nx_applet_type = AppletType_None;
+    //set applet type to use nvdrv* service
+    std::uint32_t __nx_applet_type = AppletType_SystemApplication;
     TimeServiceType __nx_time_service_type = TimeServiceType_System;
     std::uint32_t __nx_fs_num_sessions = 1;
 
     size_t nx_inner_heap_size = INNER_HEAP_SIZE;
     char nx_inner_heap[INNER_HEAP_SIZE];
+
+    //set transfermem size to 32kib like [Fizeau](https://github.com/averne/Fizeau/
+    //or we get LibnxError_OutOfMemory
+    u32 __nx_nv_transfermem_size = 0x8000;
 
     void __libnx_initheap(void)
     {
@@ -95,11 +101,15 @@ int main(int argc, char **argv)
         clockMgr->GetConfig()->SetEnabled(true);
         ipcSrv->SetRunning(true);
 
+        GovernorInit();
+
         while (clockMgr->Running())
         {
-            clockMgr->Tick();
+            //clockMgr->Tick();
             clockMgr->WaitForNextTick();
         }
+
+        GovernorExit();
 
         ipcSrv->SetRunning(false);
         delete ipcSrv;
