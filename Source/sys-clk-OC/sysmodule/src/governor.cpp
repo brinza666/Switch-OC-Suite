@@ -2,30 +2,16 @@
 #include "clocks.h"
 
 #define NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD 0x80044715
-#define MAXPERCENT  101
 #define MAX(a,b)    ((a) > (b) ? (a) : (b))
 #define MIN(a,b)    ((a) > (b) ? (b) : (a))
 #define IDLETICK(LoadPerc)  (uint32_t)((double)(1.0 - (double)(LoadPerc)/100.0) * (systemtickfreq))
-#define GPUTHREASHOLD(GPUPerc) (uint32_t)((GPUPerc) * 10)
-#define GPULoadDegradeThre  GPUTHREASHOLD(50)
-#define GPULoadDegradeCoef  0.85
+#define GPUSample   4
 
 const uint32_t samplingrate = 60;
 const uint64_t ticktime = 1'000'000'000 / samplingrate;
 const uint64_t systemtickfreq = 19'200'000 / (samplingrate / 2);
 
-const uint32_t CPUHand[7][2] =
-{
-    {612000000,  IDLETICK(20)},
-    {714000000,  IDLETICK(50)},
-    {816000000,  IDLETICK(60)},
-    {918000000,  IDLETICK(70)},
-    {1020000000, IDLETICK(80)},
-    {1122000000, IDLETICK(95)},
-    {1224000000, 0},
-};
-
-const uint32_t CPUCharge[8][2] =
+uint32_t CPUHand[7][2] =
 {
     {612000000,  IDLETICK(20)},
     {714000000,  IDLETICK(50)},
@@ -34,10 +20,21 @@ const uint32_t CPUCharge[8][2] =
     {1020000000, IDLETICK(80)},
     {1122000000, IDLETICK(90)},
     {1224000000, IDLETICK(95)},
-    {1785000000, 0},
 };
 
-const uint32_t CPUDock[9][2] =
+uint32_t CPUCharge[8][2] =
+{
+    {612000000,  IDLETICK(20)},
+    {714000000,  IDLETICK(50)},
+    {816000000,  IDLETICK(60)},
+    {918000000,  IDLETICK(70)},
+    {1020000000, IDLETICK(75)},
+    {1122000000, IDLETICK(80)},
+    {1224000000, IDLETICK(85)},
+    {1785000000, IDLETICK(90)},
+};
+
+uint32_t CPUDock[9][2] =
 {
     {612000000,  IDLETICK(20)},
     {714000000,  IDLETICK(40)},
@@ -45,75 +42,31 @@ const uint32_t CPUDock[9][2] =
     {918000000,  IDLETICK(60)},
     {1020000000, IDLETICK(70)},
     {1122000000, IDLETICK(80)},
-    {1224000000, IDLETICK(90)},
-    {1785000000, IDLETICK(95)},
-    {2295000000, 0},
+    {1224000000, IDLETICK(85)},
+    {1785000000, IDLETICK(90)},
+    {2295000000, IDLETICK(95)},
 };
 
-const uint32_t GPU230_4[4][2] =
+uint32_t GPUTable[17][3] =
 {
-    {76800000,  0},
-    {153600000, GPUTHREASHOLD(30)},
-    {230400000, GPUTHREASHOLD(50)},
-    {307200000, GPUTHREASHOLD(95)},
-};
-
-const uint32_t GPU307_2[5][2] =
-{
-    {76800000,  0},
-    {153600000, GPUTHREASHOLD(25)},
-    {230400000, GPUTHREASHOLD(35)},
-    {307200000, GPUTHREASHOLD(55)},
-    {384000000, GPUTHREASHOLD(95)},
-};
-
-const uint32_t GPU384[6][2] =
-{
-    {76800000,  0},
-    {153600000, GPUTHREASHOLD(20)},
-    {230400000, GPUTHREASHOLD(40)},
-    {307200000, GPUTHREASHOLD(50)},
-    {384000000, GPUTHREASHOLD(70)},
-    {460800000, GPUTHREASHOLD(95)},
-};
-
-const uint32_t GPU460_8[7][2] =
-{
-    {76800000,  0},
-    {153600000, GPUTHREASHOLD(20)},
-    {230400000, GPUTHREASHOLD(30)},
-    {307200000, GPUTHREASHOLD(40)},
-    {384000000, GPUTHREASHOLD(50)},
-    {460800000, GPUTHREASHOLD(70)},
-    {537600000, GPUTHREASHOLD(95)},
-};
-
-const uint32_t GPUCharge[9][2] =
-{
-    {76800000,  0},
-    {153600000, GPUTHREASHOLD(20)},
-    {230400000, GPUTHREASHOLD(30)},
-    {307200000, GPUTHREASHOLD(40)},
-    {384000000, GPUTHREASHOLD(50)},
-    {460800000, GPUTHREASHOLD(70)},
-    {537600000, GPUTHREASHOLD(80)},
-    {691200000, GPUTHREASHOLD(90)},
-    {768000000, GPUTHREASHOLD(95)},
-};
-
-const uint32_t GPU768[11][2] =
-{
-    {76800000,  0},
-    {153600000, GPUTHREASHOLD(5)},
-    {230400000, GPUTHREASHOLD(10)},
-    {307200000, GPUTHREASHOLD(20)},
-    {384000000, GPUTHREASHOLD(30)},
-    {537600000, GPUTHREASHOLD(40)},
-    {691200000, GPUTHREASHOLD(50)},
-    {768000000, GPUTHREASHOLD(60)},
-    {921600000, GPUTHREASHOLD(95)},
-    {1075200000,GPUTHREASHOLD(98)},
-    {1267200000,GPUTHREASHOLD(99)},
+    //Freq, KeepThreshold, BumpThreshold
+    {76800000,      0,      7000},
+    {153600000,     4000,   7500},
+    {230400000,     5400,   8000},
+    {307200000,     6000,   8000},
+    {384000000,     6500,   8500},
+    {460800000,     7000,   8500},
+    {537600000,     7500,   9000},
+    {614400000,     8000,   9000},
+    {691200000,     8200,   9000},
+    {768000000,     8500,   9500},
+    {844800000,     8800,   9500},
+    {921600000,     8900,   9500},
+    {998400000,     9000,   9800},
+    {1075200000,    9100,   9800},
+    {1152000000,    9200,   9900},
+    {1267200000,    9300,   9900},
+    {1267200000,    9400,  10000},
 };
 
 Thread Core0, Core1, Core2, Core3, GPU;
@@ -123,11 +76,12 @@ uint32_t fd = 0;
 //Adjusted to eliminate float point calculation
 uint64_t idletick_a[4] = {0}, idletick_b[4] = {0}, idletick[4] = {0};
 uint64_t CPUIdleTickMin = 0;
-uint32_t GPULoad = 0;
-uint8_t SetHzTick = 0, CoreTick = 0, SecondTick = samplingrate;
+uint32_t GPULoad[4] = { 0 }, GPULoadAdj = 0, GPUMax = 0;
+uint8_t GPUTick = 0, CoreTick = 0, SecondTick = samplingrate;
+bool SetHzTick = false;
 
-const uint32_t* CPUTable;
-const uint32_t* GPUTable;
+uint32_t *CPUTable;
+uint32_t *GPUTablePointer, *GPUTableMax;
 
 SysClkProfile CurProfile;
 uint32_t CurConfId;
@@ -178,11 +132,13 @@ void SetTable(uint32_t ConfId, SysClkProfile ConfProfile)
     {
         case SysClkProfile_Docked:
             CPUTable = &CPUDock[8][1];
-            GPUTable = &GPU768[10][1];
+            GPUTablePointer = &GPUTable[9][0];          // 768.0 MHz
+            GPUTableMax = &GPUTable[16][0];             // 1267.2 MHz
             break;
         case SysClkProfile_HandheldChargingOfficial:
             CPUTable = &CPUCharge[7][1];
-            GPUTable = &GPUCharge[8][1];
+            GPUTablePointer = &GPUTable[5][0];          // 460.8 MHz
+            GPUTableMax = &GPUTable[9][0];              // 768.0 MHz
             break;
         default:
             CPUTable = &CPUHand[6][1];
@@ -190,32 +146,32 @@ void SetTable(uint32_t ConfId, SysClkProfile ConfProfile)
             {
                 case 0x00020000:
                 case 0x00020002:
-                    GPUTable = &GPU230_4[3][1];
+                    GPUTablePointer = &GPUTable[2][0];  // 230.4 MHz
+                    GPUTableMax = &GPUTable[3][0];      // 307.2 MHz
                     break;
                 case 0x00020001:
                 case 0x00020003:
                 case 0x00020005:
-                    GPUTable = &GPU307_2[4][1];
+                    GPUTablePointer = &GPUTable[3][0];  // 307.2 MHz
+                    GPUTableMax = &GPUTable[4][0];      // 384.0 MHz
                     break;
                 case 0x00010000:
                 case 0x00020004:
                 case 0x00020006:
-                    GPUTable = &GPU384[5][1];
+                    GPUTablePointer = &GPUTable[4][0];  // 384.0 MHz
+                    GPUTableMax = &GPUTable[5][0];      // 460.8 MHz
                     break;
                 case 0x92220007:
                 case 0x92220008:
-                    GPUTable = &GPU460_8[6][1];
+                    GPUTablePointer = &GPUTable[5][0];  // 460.8 MHz
+                    GPUTableMax = &GPUTable[6][0];      // 537.6 MHz
                     break;
-                /*
-                case 0x00010001:
-                case 0x00010002:
-                    GPUTable = &GPU768[10][1];
-                    break;
-                */
                 default:
-                    GPUTable = &GPU384[5][1];
+                    GPUTablePointer = &GPUTable[4][0];  // 384.0 MHz
+                    GPUTableMax = &GPUTable[5][0];      // 460.8MHz
             }
     }
+    Clocks::SetHz(SysClkModule_GPU, *(GPUTablePointer));
 }
 
 void CheckGPU_Set(void*)
@@ -227,7 +183,7 @@ void CheckGPU_Set(void*)
     while(checkexit == false)
     {
         //GPU Governor: conservative style
-        //Sample rate = 60 Hz, SetHz rate = 30 Hz
+        //Sample rate = 60 Hz, SetHz rate = 60 Hz
         //Smooth out GPULoad read (it's common to see 99.7% 99.6% 0.0% 0.0% 99.3% ...)
         //bump up freq instantly if GPULoad is high; gradually drop freq if GPULoad is lower
 
@@ -238,28 +194,37 @@ void CheckGPU_Set(void*)
         rc = nvIoctl(fd, NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD, &CurGPULoad);
         if (R_FAILED(rc))
             FileUtils::LogLine("[gov] nvIoctl(...): %lx", rc);
-        SetHzTick++;
-        GPULoad = MAX(CurGPULoad, GPULoad);
 
-        if(SetHzTick % 2 == 0)
+        if(CurGPULoad > 20) //Ignore values that <= 2.0%
         {
-            for(unsigned short i = 0; i < 11 * 2; i += 2)
-            {
-                if(GPULoad > *(GPUTable - i))
-                {
-                    static uint32_t GPUClk;
-                    GPUClk = *(GPUTable - i - 1);
-                    Clocks::SetHz(SysClkModule_GPU, GPUClk);
-                    break;
-                }
-            }
+            GPULoad[GPUTick] = CurGPULoad;
+            GPUMax = MAX(MAX(GPULoad[0], GPULoad[1]), MAX(GPULoad[2], GPULoad[3]));
+            GPULoadAdj = GPUMax * 6 + (GPULoad[0] + GPULoad[1] + GPULoad[2] + GPULoad[3]);
+            GPUTick++;
+        }
 
-            SetHzTick = 0;
-            if(GPULoad > GPULoadDegradeThre)
-                GPULoad = GPULoad * GPULoadDegradeCoef;
-            else
-                GPULoad = 0;
+        if(GPUTick == GPUSample)
+        {
+            GPUTick = 0;
+        }
+        
+        if((*(GPUTablePointer + 1) > GPULoadAdj) && (GPUTablePointer >= &GPUTable[0][0]))
+        {
+            GPUTablePointer -= 3;
+        }
+        else if((*(GPUTablePointer + 2) < GPULoadAdj))
+        {
+            if(GPUTablePointer == &GPUTable[0][0] || GPUTablePointer == &GPUTable[1][0])
+                GPUTablePointer += 6;
+            else if(GPUTablePointer < GPUTableMax)
+                GPUTablePointer += 3;
+        }
 
+        Clocks::SetHz(SysClkModule_GPU, *(GPUTablePointer));
+
+        SetHzTick = !SetHzTick;
+        if(SetHzTick)
+        {
             CPUIdleTickMin = MIN(MIN(idletick[0], idletick[1]), MIN(idletick[2], idletick[3]));
 
             for(unsigned short j = 0; j < 8*2; j += 2)
@@ -288,24 +253,14 @@ void CheckGPU_Set(void*)
             {
                 CurConfId = GetConfId;
                 CurProfile = GetProfile;
-                switch(CurConfId)
+                while(CurConfId == 0x92220009 || CurConfId == 0x9222000A || CurConfId == 0x9222000B || CurConfId == 0x9222000C)
                 {
-                    case 0x92220009:
-                    case 0x9222000A:
-                    case 0x9222000B:
-                    case 0x9222000C:
-                        Clocks::ResetToStock();
-                        do
-                        {
-                            svcSleepThread(1'000'000'000);
-                            apmExtGetCurrentPerformanceConfiguration(&GetConfId);
-                        }
-                        while(CurConfId == GetConfId);
-                        CoreTick = 0;
-                        break;
-                    default:
-                        SetTable(CurConfId, CurProfile);
+                    Clocks::ResetToStock();
+                    svcSleepThread(1'000'000'000);
+                    apmExtGetCurrentPerformanceConfiguration(&CurConfId);
+                    CoreTick = 0;
                 }
+                SetTable(CurConfId, CurProfile);
             }
         }
     }
