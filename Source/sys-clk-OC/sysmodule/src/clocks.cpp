@@ -173,7 +173,7 @@ void Clocks::ResetToStock(unsigned int module)
 
         if (module == SysClkModule_EnumMax || module == SysClkModule_CPU)
         {
-            Clocks::SetHz(SysClkModule_CPU, apmConfiguration->cpu_hz);
+            Clocks::SetHz(SysClkModule_CPU, (!Clocks::isMariko && apmConfiguration->cpu_hz == 1963500000) ? 1785000000 : apmConfiguration->cpu_hz);
         }
         if (module == SysClkModule_EnumMax || module == SysClkModule_GPU)
         {

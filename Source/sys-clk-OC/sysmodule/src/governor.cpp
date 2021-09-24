@@ -1,5 +1,6 @@
 #include "governor.h"
 #include "clocks.h"
+#include "errors.h"
 
 #define NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD 0x80044715
 #define MAX(a,b)    ((a) > (b) ? (a) : (b))
@@ -68,7 +69,7 @@ uint32_t GPUTable[16][3] =
     {998400000,     9000,   9800},
     {1075200000,    9100,   9800},
     {1152000000,    9200,   9900},
-    {1267200000,    9300,   9900},
+    {1228800000,    9300,   9900},
     {1267200000,    9400,  10000},
 };
 
@@ -90,7 +91,7 @@ uint32_t CPUFreqCached, GPUFreqCached;
 SysClkProfile CurProfile;
 uint32_t CurConfId;
 
-void Core3StuckWorker()
+void Core3StuckChecker()
 {
     if(!Core3Stuck && !CPUBOOSTON(CurConfId) && (idletick[3] < IDLETICK(CORE3THRESHOLD)))
     {
@@ -115,7 +116,7 @@ void CheckCore(uint8_t CoreID)
             idletick[CoreID] = systemtickfreq;
 
         if(CoreID != 3)
-            Core3StuckWorker();
+            Core3StuckChecker();
     }
 }
 
@@ -150,7 +151,9 @@ void SetTable(uint32_t ConfId, SysClkProfile ConfProfile)
         case SysClkProfile_Docked:
             CPUTable = &CPUDock[8][1];
             GPUTablePointer = &GPUTable[8][0];          // 768.0 MHz
-            GPUTableMax = &GPUTable[15][0];             // 1267.2 MHz
+            GPUTableMax = Clocks::isMariko ? 
+                            &GPUTable[15][0] :          // 1267.2 MHz
+                            &GPUTable[10][0] ;          // 921.6 MHz(Erista)
             break;
         case SysClkProfile_HandheldChargingOfficial:
             CPUTable = &CPUCharge[7][1];
@@ -181,11 +184,13 @@ void SetTable(uint32_t ConfId, SysClkProfile ConfProfile)
                 case 0x92220007:
                 case 0x92220008:
                     GPUTablePointer = &GPUTable[4][0];  // 460.8 MHz
-                    GPUTableMax = &GPUTable[5][0];      // 537.6 MHz
+                    GPUTableMax = Clocks::isMariko ? 
+                                      &GPUTable[5][0]:  // 537.6 MHz
+                                      &GPUTable[4][0];  // 460.8 MHz(Erista)
                     break;
                 default:
                     GPUTablePointer = &GPUTable[3][0];  // 384.0 MHz
-                    GPUTableMax = &GPUTable[4][0];      // 460.8MHz
+                    GPUTableMax = &GPUTable[4][0];      // 460.8 MHz
             }
     }
     Clocks::SetHz(SysClkModule_GPU, *(GPUTablePointer));
@@ -196,7 +201,7 @@ void CheckGPU_Set(void*)
     Result rc;
     rc = nvOpen(&fd, "/dev/nvhost-ctrl-gpu");
     if (R_FAILED(rc))
-        FileUtils::LogLine("[gov] nvOpen(...): %lx", rc);
+        ERROR_THROW("[gov] nvOpen(...): %lx", rc);
     while(checkexit == false)
     {
         //GPU Governor: conservative style
@@ -223,7 +228,7 @@ void CheckGPU_Set(void*)
 
             rc = nvIoctl(fd, NVGPU_GPU_IOCTL_PMU_GET_GPU_LOAD, &CurGPULoad);
             if (R_FAILED(rc))
-                FileUtils::LogLine("[gov] nvIoctl(...): %lx", rc);
+                ERROR_THROW("[gov] nvIoctl(...): %lx", rc);
 
             if(CurGPULoad > 20) //Ignore values that <= 2.0%
             {
@@ -312,19 +317,6 @@ void CheckGPU_Set(void*)
 
 void GovernorInit()
 {
-    /*
-    svcSleepThread(5'000'000'000);
-    struct timespec before, after;
-    clock_gettime(CLOCK_REALTIME, &before);
-    for (int i = 0; i < 10000; i++)
-    {
-            Clocks::SetHz(SysClkModule_CPU, 612000000);
-            Clocks::SetHz(SysClkModule_CPU, 1020000000);
-    }
-    clock_gettime(CLOCK_REALTIME, &after);
-    uint64_t interval = (after.tv_sec - before.tv_sec) * 1'000'000'000 + after.tv_nsec - before.tv_nsec;
-    FileUtils::LogLine("10000 Loop interval: %llu ns", interval);
-    */
     apmExtGetCurrentPerformanceConfiguration(&CurConfId);
     CurProfile = Clocks::GetCurrentProfile();
     SetTable(CurConfId, CurProfile);
