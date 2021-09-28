@@ -7,7 +7,7 @@ class Governor
 {
   public:
     static void Init();
-	  static void Exit();
+    static void Exit();
   protected:
     static void Core3StuckCheck();
     static void CheckCore(uint8_t CoreID);

@@ -203,7 +203,7 @@ void Governor::SetTable(uint32_t confId, SysClkProfile confProfile)
                                   &tableGPU[5][0];  // 460.8 MHz(Erista)
                     break;
                 default:
-                    ERROR_THROW("[gov] Error: SetTable unknown confId: %lx", confId);
+                    FileUtils::LogLine("[gov] Error: SetTable unknown confId: %lx", confId);
                     tableGPUNow = &tableGPU[5][0];  // 460.8 MHz
                     tableGPUMax = &tableGPU[5][0];  // 460.8 MHz
             }
@@ -239,11 +239,21 @@ void Governor::Main(void*)
             if(cacheFreqInvalid)
             {
                 cachedGPUFreq = Clocks::GetCurrentHz(SysClkModule_GPU);
+
+                // Sleep mode detected, wait 10 sec then recheck
+                while(!cachedGPUFreq)
+                {
+                    svcSleepThread(10'000'000'000);
+                    cachedGPUFreq = Clocks::GetCurrentHz(SysClkModule_GPU);
+                }
+
+                // Boost mode detected
                 if(cachedGPUFreq == 76'800'000)
                 {
                     tickProfile = tickProfileMax;
                     continue;
                 }
+
                 cachedCPUFreq = Clocks::GetCurrentHz(SysClkModule_CPU);
                 cacheFreqInvalid = false;
             }
@@ -270,19 +280,15 @@ void Governor::Main(void*)
             if(*(tableGPUNow) != cachedGPUFreq)
             {
                 tableGPUNow = tableGPUMax;
-                while(*(tableGPUNow) != cachedGPUFreq)
+                do
                 {
-                    if(tableGPUNow > &tableGPU[0][0])
-                    {
-                        tableGPUNow -= 3;
-                    }
-                    else
-                    {
-                        tableGPUNow = tableGPUMax;
-                        ERROR_THROW("[gov] Error: Unable to get cachedGPUFreq");
+                    if(*(tableGPUNow) == cachedGPUFreq)
                         break;
-                    }
-                }
+
+                    if(tableGPUNow != &tableGPU[0][0])
+                        tableGPUNow -= 3;
+
+                } while (tableGPUNow >= &tableGPU[0][0]);
             }
 
             if((*(tableGPUNow + 1) > loadGPUAdj) && (tableGPUNow > &tableGPU[0][0]))
@@ -302,8 +308,9 @@ void Governor::Main(void*)
             if(!isCore3Stuck && tickCPU == sampleRatio)
             {
                 tickCPU = 0;
-                uint64_t idletickAdj { std::min(std::min(idletick[0], idletick[1]),
-                                                std::min(idletick[2], idletick[3])) };
+                using std::min;
+                uint64_t idletickAdj { min(min(idletick[0], idletick[1]),
+                                           min(idletick[2], idletick[3])) };
 
                 for(uint8_t i = 0; i < 8 * 2; i += 2)
                 {
