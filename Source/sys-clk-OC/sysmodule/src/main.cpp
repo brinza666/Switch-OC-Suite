@@ -101,7 +101,7 @@ int main(int argc, char **argv)
         clockMgr->GetConfig()->SetEnabled(true);
         ipcSrv->SetRunning(true);
 
-        GovernorInit();
+        Governor::Init();
 
         while (clockMgr->Running())
         {
@@ -109,7 +109,7 @@ int main(int argc, char **argv)
             clockMgr->WaitForNextTick();
         }
 
-        GovernorExit();
+        Governor::Exit();
 
         ipcSrv->SetRunning(false);
         delete ipcSrv;

@@ -12,6 +12,7 @@
 
 #include <switch.h>
 #include <stdexcept>
+#include <cstdarg>
 
 #define ERROR_THROW(format, ...) Errors::ThrowException(format "\n  in %s:%u", ##__VA_ARGS__, __FILE__, __LINE__)
 #define ERROR_RESULT_THROW(rc, format, ...) ERROR_THROW(format "\n  RC: [0x%x] %04d-%04d", ##__VA_ARGS__, rc, R_MODULE(rc), R_DESCRIPTION(rc))
