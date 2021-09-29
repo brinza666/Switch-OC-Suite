@@ -28,6 +28,7 @@ class Clocks
     static const char* GetThermalSensorName(SysClkThermalSensor sensor, bool pretty);
     static std::uint32_t GetNearestHz(SysClkModule module, SysClkProfile profile, std::uint32_t inHz);
     static std::uint32_t GetTemperatureMilli(SysClkThermalSensor sensor);
+    static bool IsBoostMode(bool accptLimitGPUOnly);
 
   protected:
     static PcvModule GetPcvModule(SysClkModule sysclkModule);

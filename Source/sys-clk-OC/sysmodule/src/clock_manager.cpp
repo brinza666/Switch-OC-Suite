@@ -63,18 +63,6 @@ ClockManager::~ClockManager()
     delete this->context;
 }
 
-bool ClockManager::IsCpuBoostMode()
-{
-    std::uint32_t confId = 0;
-    Result rc = 0;
-    rc = apmExtGetCurrentPerformanceConfiguration(&confId);
-    ASSERT_RESULT_OK(rc, "apmExtGetCurrentPerformanceConfiguration");
-    if(confId == 0x92220009 || confId == 0x9222000A)
-        return true;
-    else
-        return false;
-}
-
 SysClkProfile ClockManager::ReverseNXProfile(bool ForceDock)
 {
     RealProfile = Clocks::GetCurrentProfile();
@@ -209,7 +197,7 @@ void ClockManager::Tick()
 
     if(!GameStartBoost())
     {
-        bool cpuBoost = FileUtils::IsBoostEnabled() ? IsCpuBoostMode() : false;
+        bool cpuBoost = FileUtils::IsBoostEnabled() ? Clocks::IsBoostMode(false) : false;
         if (this->RefreshContext() || this->config->Refresh())
         {
             std::uint32_t hz = 0;

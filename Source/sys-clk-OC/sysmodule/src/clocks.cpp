@@ -438,3 +438,14 @@ std::uint32_t Clocks::GetTemperatureMilli(SysClkThermalSensor sensor)
 
     return std::max(0, millis);
 }
+
+bool Clocks::IsBoostMode(bool acceptLimitGPUOnly = true)
+{
+    std::uint32_t confId = 0;
+    Result rc = 0;
+    rc = apmExtGetCurrentPerformanceConfiguration(&confId);
+    ASSERT_RESULT_OK(rc, "apmExtGetCurrentPerformanceConfiguration");
+    return ( confId == 0x92220009 || confId == 0x9222000a ||
+           ((confId == 0x9222000b || confId == 0x9222000c) && (acceptLimitGPUOnly)) );
+}
+

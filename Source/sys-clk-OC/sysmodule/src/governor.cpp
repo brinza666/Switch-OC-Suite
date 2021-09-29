@@ -2,14 +2,15 @@
 #include "clocks.h"
 #include "errors.h"
 
-#define NOBOOSTONBATTERY  TRUE
+#define NOBOOSTONBATTERY  1
 
 static Thread t_Core0, t_Core1, t_Core2, t_Core3, t_Main;
 static bool governorExit;
 static uint32_t nvField;
 static uint64_t idletick_prev[4], idletick_next[4], idletick[4];
-static bool isCore3Stuck { false };
+static uint16_t countCore3Stuck { 0 };
 static uint32_t *tableCPU, *tableGPUNow, *tableGPUMax;
+static uint32_t cachedCPUFreq, cachedGPUFreq;
 static SysClkProfile g_Profile;
 static uint32_t g_ConfId;
 
@@ -26,16 +27,18 @@ constexpr uint32_t perc2IdleTick(uint8_t LoadPerc)
 
 constexpr bool isCPUBoostON(uint32_t ID)
 {
-    return (ID == 0x92220009 || ID == 0x9222000A);
+    return (ID == 0x92220009 || ID == 0x9222000a || ID == 0x922200c || ID == 0x922200b);
 }
 
 constexpr uint8_t sampleGPU { 5 };
-constexpr uint32_t thresholdCore3Stuck { perc2IdleTick(98) };
+constexpr double coeffCore3 { 1.2 };
+constexpr uint32_t IdleTickMax = coeffCore3 * sysTickFreq;
+constexpr uint32_t thresholdCore3Stuck = coeffCore3 * perc2IdleTick(98);
 
 #if NOBOOSTONBATTERY
 uint32_t tableCPUHand[5][2]
 {
-    {612000000,  perc2IdleTick(20)},
+    {612000000,        IdleTickMax},
     {714000000,  perc2IdleTick(50)},
     {816000000,  perc2IdleTick(60)},
     {918000000,  perc2IdleTick(70)},
@@ -44,7 +47,7 @@ uint32_t tableCPUHand[5][2]
 #else
 uint32_t tableCPUHand[7][2]
 {
-    {612000000,  perc2IdleTick(20)},
+    {612000000,        IdleTickMax},
     {714000000,  perc2IdleTick(50)},
     {816000000,  perc2IdleTick(60)},
     {918000000,  perc2IdleTick(70)},
@@ -56,7 +59,7 @@ uint32_t tableCPUHand[7][2]
 
 uint32_t tableCPUCharge[8][2]
 {
-    {612000000,  perc2IdleTick(20)},
+    {612000000,        IdleTickMax},
     {714000000,  perc2IdleTick(50)},
     {816000000,  perc2IdleTick(60)},
     {918000000,  perc2IdleTick(70)},
@@ -68,7 +71,7 @@ uint32_t tableCPUCharge[8][2]
 
 uint32_t tableCPUDock[9][2]
 {
-    {612000000,  perc2IdleTick(20)},
+    {612000000,        IdleTickMax},
     {714000000,  perc2IdleTick(40)},
     {816000000,  perc2IdleTick(50)},
     {918000000,  perc2IdleTick(60)},
@@ -105,11 +108,13 @@ uint32_t tableGPU[17][3]
 
 void Governor::Core3StuckCheck()
 {
-    if(!isCore3Stuck && !isCPUBoostON(g_ConfId) && (idletick[3] < thresholdCore3Stuck))
+    countCore3Stuck++;
+    if(!isCPUBoostON(g_ConfId) && (idletick[3] <= thresholdCore3Stuck || countCore3Stuck > 6))
     {
-        isCore3Stuck = true;
+        countCore3Stuck = 0;
         threadPause(&t_Main);
         Clocks::SetHz(SysClkModule_CPU, *(tableCPU - 1));
+        cachedCPUFreq = *(tableCPU - 1);
         threadResume(&t_Main);
     }
 }
@@ -128,8 +133,8 @@ void Governor::CheckCore(uint8_t coreID)
 
         if(coreID != 3)
             Core3StuckCheck();
-        else if(isCore3Stuck)
-            isCore3Stuck = false;
+        else
+            idletick[3] *= coeffCore3; // Differentiate Core#3
     }
 }
 
@@ -221,7 +226,6 @@ void Governor::Main(void*)
         ERROR_THROW("[gov] nvOpen(...): %lx", rc);
 
     constexpr uint8_t tickProfileMax { sampleRateGPU / 10 };
-    uint32_t cachedCPUFreq, cachedGPUFreq;
     uint32_t loadGPUMax { 0 }, loadGPUAdj { 0 };
     uint8_t tickCPU { 0 }, tickGPU { 0 }, tickProfile { sampleRateGPU };
     bool cacheFreqInvalid { true };
@@ -234,6 +238,7 @@ void Governor::Main(void*)
     //bump up freq instantly if GPULoad is high; gradually drop freq if GPULoad is lower
     while(governorExit == false)
     {
+        countCore3Stuck = 0;
         if(tickProfile < tickProfileMax)
         {
             if(cacheFreqInvalid)
@@ -243,7 +248,11 @@ void Governor::Main(void*)
                 // Sleep mode detected, wait 10 sec then recheck
                 while(!cachedGPUFreq)
                 {
-                    svcSleepThread(10'000'000'000);
+                    for(uint16_t i = 0; i < (sampleRateGPU * 10); i++)
+                    {
+                        countCore3Stuck = 0;
+                        svcSleepThread(tickTime);
+                    }
                     cachedGPUFreq = Clocks::GetCurrentHz(SysClkModule_GPU);
                 }
 
@@ -305,16 +314,16 @@ void Governor::Main(void*)
             }
 
             tickCPU++;
-            if(!isCore3Stuck && tickCPU == sampleRatio)
+            if(tickCPU == sampleRatio)
             {
                 tickCPU = 0;
-                using std::min;
-                uint64_t idletickAdj { min(min(idletick[0], idletick[1]),
-                                           min(idletick[2], idletick[3])) };
+                uint64_t* idletickMin;
+                idletickMin = std::min_element(idletick, idletick + 4);
+
 
                 for(uint8_t i = 0; i < 8 * 2; i += 2)
                 {
-                    if(idletickAdj <= *(tableCPU - i))
+                    if(*idletickMin <= *(tableCPU - i))
                     {
                         uint32_t clockCPU;
                         clockCPU = *(tableCPU - i - 1);
@@ -347,6 +356,7 @@ void Governor::Main(void*)
                     Clocks::ResetToStock();
                     do
                     {
+                        countCore3Stuck = 0;
                         svcSleepThread(tickTime * sampleRatio);
                         apmExtGetCurrentPerformanceConfiguration(&g_ConfId);
                     }
